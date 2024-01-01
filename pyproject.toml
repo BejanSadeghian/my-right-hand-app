@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "my-right-hand-app"
+version = "0.1.0"
+description = ""
+authors = ["Bejan Sadeghian"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+streamlit = "^1.29.0"
+my-right-hand = { git = "https://github.com/BejanSadeghian/my-right-hand.git", branch = "main" }
+python-dotenv = "^1.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
