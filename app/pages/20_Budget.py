@@ -29,9 +29,74 @@ def init():
         df.to_csv(os.getenv("BUDEGET_LOCAL_STORE"), index=False)
 
 
-def get_filtered_data(df, account, category, month, year, ALL_VAR):
+def display_overview(filtered_data, AMOUNT_FIELD):
+    mask = filtered_data[AMOUNT_FIELD] <= 0
+    outflow_data = filtered_data.loc[mask, :]
+    inflow_data = filtered_data.loc[~mask, :]
+
+    col1, col2, col3 = st.columns((4, 4, 4))
+    col1.metric(
+        "Outflow",
+        millify(
+            sum(outflow_data[AMOUNT_FIELD]),
+            precision=2,
+        ),
+    )
+    col2.metric(
+        "Inflow",
+        millify(
+            sum(inflow_data[AMOUNT_FIELD]),
+            precision=2,
+        ),
+    )
+    col3.metric(
+        "Net Cash Flow",
+        millify(
+            sum(filtered_data[AMOUNT_FIELD]),
+            precision=2,
+        ),
+    )
+
+    st.write("Overview")
+    overview_tabs = st.tabs(["Overview", "Outflow", "Inflow"])
+    overview_tabs[0].bar_chart(x="Date", y=AMOUNT_FIELD, data=filtered_data)
+    overview_tabs[1].bar_chart(x="Date", y=AMOUNT_FIELD, data=outflow_data)
+    overview_tabs[2].bar_chart(x="Date", y=AMOUNT_FIELD, data=inflow_data)
+
+
+def display_metric(
+    st_object,
+    filtered_actual_data,
+    budget_df,
+    category,
+    AMOUNT_FIELD,
+    monthly=True,
+) -> None:
+    actual_value = np.nansum(filtered_actual_data[AMOUNT_FIELD] * -1)
+
+    filtered_budget_data = budget_df[budget_df["Category"] == category]
+    budget_metric = "Monthly" if monthly else "Yearly"
+    budget_value = np.nansum(filtered_budget_data[budget_metric])
+
+    delta = (
+        millify(100 * (actual_value - budget_value) / budget_value, precision=2)
+        if budget_value != 0
+        else None
+    )
+    delta = f"{delta}%" if delta else None
+
+    st_object.metric(
+        category,
+        millify(actual_value, precision=2),
+        delta=delta,
+        delta_color="inverse",
+        help=f"Budget: {budget_value}, Actual: {actual_value}",
+    )
+
+
+def get_filtered_data(df, accounts, category, month, year, ALL_VAR):
     return df[
-        ((df["Account"] == account) | (account == ALL_VAR))
+        ((ALL_VAR in accounts) | (df["Account"].apply(lambda x: x in accounts)))
         & ((df["Category"] == category) | (category == ALL_VAR))
         & ((df["Month"] == month) | (month == ALL_VAR))
         & ((df["Year"] == year) | (year == ALL_VAR))
@@ -51,7 +116,10 @@ def main(df, budget_df, ALL_VAR="All", AMOUNT_FIELD="Amount"):
     unique_years = sorted(list(df["Year"].unique()))
 
     # Create dropdowns for "Account", "Category", "Month", "Year", and "Week Number"
-    account = st.selectbox("Select Account", [ALL_VAR] + unique_accounts)
+    # account = st.selectbox("Select Account", [ALL_VAR] + unique_accounts)
+    account = st.multiselect(
+        "Select Accounts", [ALL_VAR] + unique_accounts, default=ALL_VAR
+    )
     col1, col2, col3 = st.columns((4, 4, 4))
     category = col1.selectbox("Select Category", [ALL_VAR] + unique_categories)
     today = pd.to_datetime("today")
@@ -69,82 +137,99 @@ def main(df, budget_df, ALL_VAR="All", AMOUNT_FIELD="Amount"):
     # Filter data based on dropdown selections
     filtered_data = get_filtered_data(df, account, category, month, year, ALL_VAR)
 
-    tab_set = ["Overview", "Budget Metrics", "Transactions"]
+    tab_set = ["Overview", "Category Metrics", "Transactions", "Budget", "Statistics"]
     tabs = st.tabs(tab_set)
     # Create a bar chart to show the "Amount" data
     with tabs[0]:
-        mask = filtered_data[AMOUNT_FIELD] <= 0
-        outflow_data = filtered_data.loc[mask, :]
-        inflow_data = filtered_data.loc[~mask, :]
-
-        col1, col2, col3 = st.columns((4, 4, 4))
-        col1.metric(
-            "Outflow",
-            millify(
-                sum(outflow_data[AMOUNT_FIELD]),
-                precision=2,
-            ),
-        )
-        col2.metric(
-            "Inflow",
-            millify(
-                sum(inflow_data[AMOUNT_FIELD]),
-                precision=2,
-            ),
-        )
-        col3.metric(
-            "Net Cash Flow",
-            millify(
-                sum(filtered_data[AMOUNT_FIELD]),
-                precision=2,
-            ),
-        )
-
-        st.write("Overview")
-        overview_tabs = st.tabs(["Overview", "Outflow", "Inflow"])
-        overview_tabs[0].bar_chart(x="Date", y=AMOUNT_FIELD, data=filtered_data)
-        overview_tabs[1].bar_chart(x="Date", y=AMOUNT_FIELD, data=outflow_data)
-        overview_tabs[2].bar_chart(x="Date", y=AMOUNT_FIELD, data=inflow_data)
+        display_overview(filtered_data, AMOUNT_FIELD)
 
     with tabs[1]:
-        st.write(
-            f"Showing Category Budgets for {month} {year} (positive means outflow)"
-        )
+        st.write(f"Showing Category Budgets for Month {month} Year {year}")
+        st.caption("On This Tab Positive Means Outflow of Cash")
+        monthly_budget = st.checkbox("Use Monthly Budget", value=True)
+
         category_cols = st.columns((4, 4, 4))
         for index, category in enumerate(unique_categories):
             col_index = index % 3
             filtered_actual_data = get_filtered_data(
                 df,
-                ALL_VAR,
+                [ALL_VAR],
                 category,
                 month,
                 year,
                 ALL_VAR,
             )
-            actual_value = np.nansum(filtered_actual_data[AMOUNT_FIELD]) * -1
 
-            filtered_budget_data = budget_df[budget_df["Category"] == category]
-            budget_value = np.nansum(filtered_budget_data["Monthly"])
-
-            delta = (
-                millify(100 * (actual_value - budget_value) / budget_value, precision=2)
-                if budget_value != 0
-                else None
-            )
-            delta = f"{delta}%" if delta else None
-
-            category_cols[col_index].metric(
+            display_metric(
+                category_cols[col_index],
+                filtered_actual_data,
+                budget_df,
                 category,
-                millify(actual_value, precision=2),
-                delta=delta,
-                delta_color="inverse",
-                help=f"Budget: {budget_value}, Actual: {actual_value}",
+                AMOUNT_FIELD,
+                monthly=monthly_budget,
             )
+
     with tabs[2]:
         st.dataframe(filtered_data, hide_index=True)
+    with tabs[3]:
+        with st.form("Edit Budget"):
+            mod_budget_df = st.data_editor(budget_df, hide_index=True)
+            save_mod_budget_button = st.form_submit_button("Save")
+            if save_mod_budget_button:
+                mod_budget_df.to_csv(os.getenv("BUDGET_LOCAL_STORE"), index=False)
 
+    with tabs[4]:
+        st.write("Average Monthly Statistics")
+        st.caption(
+            "This tab ignores the category and month above. Uses Year and Account."
+        )
+        st.caption("On This Tab Positive Means Outflow of Cash")
 
-# def budget(storage_file, budget_file):
+        statistic = st.selectbox(
+            "Select Statistic", options=["Average", "Median", "Count"]
+        )
+        filtered_year_data = get_filtered_data(
+            df, account, ALL_VAR, ALL_VAR, year, ALL_VAR
+        )
+        monthly_totals = (
+            filtered_year_data.groupby(["Category", "Month"])[AMOUNT_FIELD]
+            .sum()
+            .reset_index()
+        )
+        if statistic == "Average":
+            monthly_stat = (
+                monthly_totals.groupby("Category")[AMOUNT_FIELD]
+                .apply(np.nanmean)
+                .reset_index()
+            )
+        elif statistic == "Median":
+            monthly_stat = (
+                monthly_totals.groupby("Category")[AMOUNT_FIELD]
+                .apply(np.nanmedian)
+                .reset_index()
+            )
+        elif statistic == "Count":
+            monthly_stat = (
+                monthly_totals.groupby("Category")[AMOUNT_FIELD]
+                .apply(lambda x: len(x) * -1)
+                .reset_index()
+            )
+        print(monthly_totals)
+        print(monthly_stat)
+        category_cols = st.columns((4, 4, 4))
+        for index, category in enumerate(unique_categories):
+            col_index = index % 3
+            filtered_monthly_averages = monthly_stat.loc[
+                monthly_stat.loc[:, "Category"] == category, :
+            ]
+            display_metric(
+                category_cols[col_index],
+                filtered_monthly_averages,
+                budget_df,
+                category,
+                AMOUNT_FIELD,
+                monthly=monthly_budget,
+            )
 
 
 if __name__ == "__main__":
