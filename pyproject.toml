@@ -9,7 +9,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.12"
 streamlit = "^1.29.0"
-my-right-hand = { git = "https://github.com/BejanSadeghian/my-right-hand.git", branch = "main" }
+my-right-hand = {git = "https://github.com/BejanSadeghian/my-right-hand.git", rev = "main"}
 python-dotenv = "^1.0.0"
 seaborn = "^0.13.1"
 millify = "^0.1.1"

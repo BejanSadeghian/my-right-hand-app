@@ -4,6 +4,7 @@ import numpy as np
 import os
 import dotenv
 import matplotlib.pyplot as plt
+import altair as alt
 from millify import millify
 
 # from dateutil import parser
@@ -17,22 +18,32 @@ def init():
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
         data.to_csv(
-            os.getenv("BUDEGET_LOCAL_STORE"),
+            os.getenv("SPEND_LOCAL_STORE"),
             index=False,
             mode="a",
             header=False,
         )
 
         # Remove duplicates
-        df = pd.read_csv(os.getenv("BUDEGET_LOCAL_STORE"))
+        df = pd.read_csv(os.getenv("SPEND_LOCAL_STORE"))
         df.drop_duplicates(inplace=True)
-        df.to_csv(os.getenv("BUDEGET_LOCAL_STORE"), index=False)
+        df.to_csv(os.getenv("SPEND_LOCAL_STORE"), index=False)
 
 
-def display_overview(filtered_data, AMOUNT_FIELD):
+def display_overview(
+    filtered_data,
+    AMOUNT_FIELD,
+    NEG_COLOR="#8B0000",
+    POS_COLOR="#006400",
+):
+    COL_ORDER = [POS_COLOR, NEG_COLOR]
+    filtered_data.reset_index(inplace=True)
     mask = filtered_data[AMOUNT_FIELD] <= 0
     outflow_data = filtered_data.loc[mask, :]
     inflow_data = filtered_data.loc[~mask, :]
+    filtered_data.loc[:, "Color"] = POS_COLOR
+    filtered_data.loc[mask, "Color"] = NEG_COLOR
+    # print(filtered_data.loc[:, ["Description", AMOUNT_FIELD, "Color"]])
 
     col1, col2, col3 = st.columns((4, 4, 4))
     col1.metric(
@@ -59,9 +70,25 @@ def display_overview(filtered_data, AMOUNT_FIELD):
 
     st.write("Overview")
     overview_tabs = st.tabs(["Overview", "Outflow", "Inflow"])
-    overview_tabs[0].bar_chart(x="Date", y=AMOUNT_FIELD, data=filtered_data)
-    overview_tabs[1].bar_chart(x="Date", y=AMOUNT_FIELD, data=outflow_data)
-    overview_tabs[2].bar_chart(x="Date", y=AMOUNT_FIELD, data=inflow_data)
+
+    c = (
+        alt.Chart(filtered_data)
+        .mark_bar()
+        .encode(
+            x="Date",
+            y=AMOUNT_FIELD,
+            color=alt.Color("Color", legend=None, sort=COL_ORDER),
+        )
+        .configure_range(category=alt.RangeScheme(COL_ORDER))
+    )
+    overview_tabs[0].altair_chart(c, use_container_width=True)
+
+    overview_tabs[1].bar_chart(
+        x="Date", y=AMOUNT_FIELD, data=outflow_data, color=NEG_COLOR
+    )
+    overview_tabs[2].bar_chart(
+        x="Date", y=AMOUNT_FIELD, data=inflow_data, color=POS_COLOR
+    )
 
 
 def display_metric(

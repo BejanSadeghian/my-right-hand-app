@@ -1263,7 +1263,7 @@ name = "my-right-hand"
 version = "0.1.0"
 description = ""
 optional = false
-python-versions = "^3.9"
+python-versions = "^3.12"
 files = []
 develop = false
 
@@ -1285,7 +1285,7 @@ tqdm = "^4.66.1"
 type = "git"
 url = "https://github.com/BejanSadeghian/my-right-hand.git"
 reference = "main"
-resolved_reference = "5a217b78cab9331b79e8fa6cb1325816b8ca079f"
+resolved_reference = "f50ecf8197441408f90a72f73fb2c3911f68b421"
 
 [[package]]
 name = "numpy"
@@ -2997,4 +2997,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "0b8fe559e08c2a3c88bf098beb2a0815d8b21cd612656bec88889f091f6119b1"
+content-hash = "83c3c06963a6f4f9cf56c384bd836d1959f424a81eef3c42f5974b3093db753c"
