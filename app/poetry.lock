@@ -1356,7 +1356,7 @@ tqdm = "^4.66.1"
 type = "git"
 url = "https://github.com/BejanSadeghian/my-right-hand.git"
 reference = "main"
-resolved_reference = "f50ecf8197441408f90a72f73fb2c3911f68b421"
+resolved_reference = "8b42c2c9d4fc699a8bb4eb3c2daaedfa235cd43c"
 
 [[package]]
 name = "numpy"

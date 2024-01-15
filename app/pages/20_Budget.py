@@ -7,27 +7,13 @@ import matplotlib.pyplot as plt
 import altair as alt
 from millify import millify
 
+from app.utils import init_budget_page
+
 # from dateutil import parser
 
 dotenv.load_dotenv()
 
-
-def init():
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-
-    if uploaded_file is not None:
-        data = pd.read_csv(uploaded_file)
-        data.to_csv(
-            os.getenv("SPEND_LOCAL_STORE"),
-            index=False,
-            mode="a",
-            header=False,
-        )
-
-        # Remove duplicates
-        df = pd.read_csv(os.getenv("SPEND_LOCAL_STORE"))
-        df.drop_duplicates(inplace=True)
-        df.to_csv(os.getenv("SPEND_LOCAL_STORE"), index=False)
+init_budget_page()
 
 
 def display_overview(
@@ -131,6 +117,22 @@ def get_filtered_data(df, accounts, category, month, year, ALL_VAR):
 
 
 def main(df, budget_df, ALL_VAR="All", AMOUNT_FIELD="Amount"):
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+
+    if uploaded_file is not None:
+        data = pd.read_csv(uploaded_file)
+        data.to_csv(
+            os.getenv("SPEND_LOCAL_STORE"),
+            index=False,
+            mode="a",
+            header=False,
+        )
+
+        # Remove duplicates
+        df = pd.read_csv(os.getenv("SPEND_LOCAL_STORE"))
+        df.drop_duplicates(inplace=True)
+        df.to_csv(os.getenv("SPEND_LOCAL_STORE"), index=False)
+
     # Add month, year, and week number columns based on the "Date"
     df["Date"] = pd.to_datetime(df["Date"])
     df["Month"] = df["Date"].dt.month
