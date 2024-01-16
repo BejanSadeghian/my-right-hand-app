@@ -1,12 +1,9 @@
-import os
 import dotenv
 import streamlit as st
-import pandas as pd
-from dateutil import parser
-
+from utils import init_app
 
 dotenv.load_dotenv()
 
-st.set_page_config(layout="wide")
+init_app()
 
 st.write("Hello World!")
