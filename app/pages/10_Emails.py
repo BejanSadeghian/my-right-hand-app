@@ -8,18 +8,20 @@ from openai import OpenAI
 from utils import init_app, init_emails_page
 from my_right_hand.agent import OpenAIAgent
 
-from pages.components.email_funcs import (
-    render_email_fetch,
+from pages.components.email.utils import (
     fetch_emails,
     save_new_emails,
-    render_email_processing,
     fetch_unreviewed_ids,
     process_emails,
     fetch_form_data,
-    render_email_details_options,
     fetch_display_data,
-    render_email_details_table,
     save_acknowledgements,
+)
+from pages.components.email.render import (
+    render_email_fetch,
+    render_email_processing,
+    render_email_details_options,
+    render_email_details_table,
 )
 
 

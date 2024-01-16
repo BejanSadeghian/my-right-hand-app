@@ -43,18 +43,6 @@ def fetch_unreviewed_ids(schema: str, sql_engine: Engine) -> list[str]:
     return data["id"].values
 
 
-def render_email_fetch(default_window: int) -> st.button:
-    with st.form("request_emails"):
-        col1, col2, _ = st.columns((3, 3, 6))
-        start_date = col1.date_input(
-            "Start Date",
-            datetime.now() - timedelta(days=default_window),
-        )
-        end_date = col2.date_input("End Date", datetime.now())
-        submit_button = col2.form_submit_button("Fetch Emails")
-    return submit_button, start_date, end_date
-
-
 def fetch_emails(start_date: datetime, end_date: datetime) -> list[EmailMessage]:
     # if submit_button:
     print(f"{start_date}, {end_date}")
@@ -101,26 +89,6 @@ def save_new_emails(
         return new_emails_payload
     else:
         return []
-
-
-def render_email_processing(
-    emails: list[EmailMessage],
-    new_emails: list[EmailMessage],
-    review_email_ids: list[str],
-):
-    ic(review_email_ids)
-    with st.form("process_email"):
-        col1, col2, col3 = st.columns((2, 2, 8))
-        col1.metric("Emails Retrieved", value=len(emails))
-        col2.metric("New Emails", value=len(new_emails))
-        col2.metric(
-            "Unreviewed Emails",
-            value=len(review_email_ids),
-        )
-        with col3.expander("Retrieved Emails"):
-            st.write(pd.DataFrame([x.model_dump() for x in emails]))
-        process_submit = col1.form_submit_button("Process Emails")
-    return process_submit
 
 
 def process_emails(
@@ -186,35 +154,6 @@ def fetch_form_data(
     return (bool_cols, non_bool_cols)
 
 
-def render_email_details_options(
-    default_window: int,
-    boolean_fields: list[str],
-    non_boolean_fields: list[str],
-):
-    col1, col2 = st.columns((6, 6))
-
-    selected_field = col1.selectbox(
-        "Select a boolean field to filter",
-        options=["all"] + boolean_fields,
-    )
-    date = pd.to_datetime(
-        col1.date_input(
-            "Filter By Date",
-            value=datetime.now() - timedelta(days=default_window),
-        ),
-        utc=True,
-    )
-
-    display_fields = col2.multiselect(
-        "Select Fields to Show",
-        default=["sender", "subject", "date"],
-        options=non_boolean_fields,
-    )
-
-    only_unacknowledged = col2.checkbox("Exclude Acknowledged", value=False)
-    return selected_field, date, display_fields, only_unacknowledged
-
-
 def fetch_display_data(
     review_filter: str,
     boolean_fields: list[str],
@@ -256,22 +195,6 @@ def fetch_display_data(
     return data
 
 
-def render_email_details_table(display_data: pd.DataFrame, ack_only_field_name: str):
-    with st.form("acknowledge"):
-        form_button = st.form_submit_button("Acknowledge Email")
-
-        # st.session_state["filtered_data"] = filtered_data[mask]
-
-        editor_data = st.data_editor(
-            display_data,
-            disabled=[
-                x for x in display_data.columns.values if x != ack_only_field_name
-            ],
-            hide_index=True,
-        )
-    return form_button, editor_data
-
-
 def save_acknowledgements(
     email_ids: tuple[str, bool],
     schema: str,
@@ -310,24 +233,3 @@ def save_acknowledgements(
                     unacknowledgements.append(email_id)
 
     return new_acknowledgements, unacknowledgements
-    # pass
-    # export = displayed_data.loc[:, [id_field, ack_field]]
-    # # print(export)
-    # for index, record in export.iterrows():
-    #     id = record[id_field]
-    #     new_val = record[ack_field]
-    #     mask = local_store[id_field] == id
-    #     if sum(mask) == 0:
-    #         local_store = pd.concat(
-    #             [
-    #                 local_store,
-    #                 displayed_data.loc[
-    #                     displayed_data.loc[:, id_field] == id,
-    #                     [id_field, ack_field],
-    #                 ],
-    #             ],
-    #             sort=False,
-    #         )
-    #     else:
-    #         local_store.loc[local_store[id_field] == id, ack_field] = new_val
-    # local_store.to_pickle(os.getenv("LOCAL_STORE"))

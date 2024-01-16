@@ -55,3 +55,31 @@ CREATE TABLE logs (
 	PRIMARY KEY (id)
 );
 
+
+CREATE TABLE transactions (
+	id TEXT NOT NULL, 
+	date TEXT, 
+	account TEXT, 
+	description TEXT, 
+	category TEXT, 
+	tags TEXT, 
+	amount NUMERIC, 
+	created_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(), 
+	edited_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(), 
+	PRIMARY KEY (id)
+);
+
+
+CREATE TABLE budget (
+	id TEXT NOT NULL, 
+	category TEXT, 
+	monthly INTEGER, 
+	yearly INTEGER, 
+	created_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(), 
+	edited_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(), 
+	PRIMARY KEY (id)
+);
+
+
+
+

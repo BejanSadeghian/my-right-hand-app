@@ -9,6 +9,12 @@ def init_app():
         st.session_state["initialized_app"] = True
         st.set_page_config(layout="wide")
 
+    if "sql_engine" not in st.session_state:
+        st.session_state["sql_engine"] = create_engine(
+            os.getenv("CONN_STR"),
+            echo=True,
+        )
+
 
 def init_emails_page():
     if "emails" not in st.session_state:
@@ -16,11 +22,6 @@ def init_emails_page():
         st.session_state["new_emails"] = []
         st.session_state["emails_needing_review"] = []
         st.session_state["editor_data"] = pd.DataFrame()
-    if "sql_engine" not in st.session_state:
-        st.session_state["sql_engine"] = create_engine(
-            os.getenv("CONN_STR"),
-            echo=True,
-        )
 
 
 def init_budget_page():
