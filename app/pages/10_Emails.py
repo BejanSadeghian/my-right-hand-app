@@ -1,25 +1,35 @@
 import os
 import dotenv
 import streamlit as st
-import pandas as pd
-import my_right_hand as rh
 
 from icecream import ic
-from datetime import datetime, timedelta
 from openai import OpenAI
-from dateutil import parser
 
 from utils import init_app, init_emails_page
-from my_right_hand.email_client import GmailRetriever
-from my_right_hand.utils import redactor, generate_dataframe
 from my_right_hand.agent import OpenAIAgent
 
-dotenv.load_dotenv()
+from pages.components.email_funcs import (
+    render_email_fetch,
+    fetch_emails,
+    save_new_emails,
+    render_email_processing,
+    fetch_unreviewed_ids,
+    process_emails,
+    fetch_form_data,
+    render_email_details_options,
+    fetch_display_data,
+    render_email_details_table,
+    save_acknowledgements,
+)
 
+
+dotenv.load_dotenv()
 init_app()
 init_emails_page()
 
 DEFAULT_WINDOW = 2
+ALL_INDICATORS = ["all"]
+ACKNOWLEDGE_FIELD = "acknowledge"
 SCHEMA = os.getenv("DB_SCHEMA")
 
 client = OpenAI(
@@ -31,211 +41,86 @@ agent = OpenAIAgent(
     use_snippet=False,
 )
 
-
-def fetch_present_ids(schema: str, pk_list: list[str]):
-    with st.session_state["sql_engine"].connect() as conn:
-        query = f"SELECT id FROM {SCHEMA}.emails WHERE id IN %(pk_list)s"
-
-        matching_ids = pd.read_sql_query(
-            query,
-            conn,
-            params={"pk_list": tuple(pk_list)},
+if __name__ == "__main__":
+    tab_names = ["Email Details", "Retrieve New Emails"]
+    tabs = st.tabs(tab_names)
+    with tabs[-1]:
+        fetch_email_button, start_date, end_date = render_email_fetch(DEFAULT_WINDOW)
+        review_email_ids = fetch_unreviewed_ids(
+            schema=SCHEMA,
+            sql_engine=st.session_state["sql_engine"],
         )
-    ic(matching_ids[["id"]])
-    return matching_ids["id"].values
-
-
-def fetch_unreviewed_ids(schema: str):
-    with st.session_state["sql_engine"].connect() as conn:
-        query = f"""
-            SELECT e.id
-            FROM {schema}.emails e
-            LEFT JOIN {schema}.assessments a ON e.id = a.id
-            WHERE a.id IS NULL
-            """
-        data = pd.read_sql_query(
-            query,
-            conn,
-        )
-    return data["id"].values
-
-
-def render_email_fetch():
-    with st.form("request_emails"):
-        col1, col2, _ = st.columns((3, 3, 6))
-        start_date = col1.date_input(
-            "Start Date",
-            datetime.now() - timedelta(days=DEFAULT_WINDOW),
-        )
-        end_date = col2.date_input("End Date", datetime.now())
-        submit_button = col2.form_submit_button("Fetch Emails")
-
-    if submit_button:
-        print(f"{start_date}, {end_date}")
-        # data = pd.read_pickle(os.getenv("DATA"))
-        # data.to_csv("temp2.csv", index=False)
-
-        email = GmailRetriever(
-            scopes=["https://www.googleapis.com/auth/gmail.readonly"],
-            credentials_json_path=os.getenv("EMAIL_CREDENTIAL_JSON"),
-        )
-        email.authenticate()
-        email.connect()
-        st.session_state["emails"] = email.retrieve(start_date, end_date)
-        email_df = pd.DataFrame([x.model_dump() for x in st.session_state["emails"]])
-        email_df.loc[:, "link"] = email_df.loc[:, "id"].apply(
-            lambda x: f"https://mail.google.com/mail/u/0/#inbox/{x}"
-        )
-
-        matching_ids = fetch_present_ids(
-            SCHEMA,
-            [x for x in email_df.loc[:, "id"].values],
-        )
-        mask = [x.id not in matching_ids for x in st.session_state["emails"]]
-        email_df = email_df.loc[mask, :]
-
-        ic(email_df.head())
-        ic(mask)
-        if not email_df.empty:
-            email_df.to_sql(
-                "emails",
-                st.session_state["sql_engine"],
+        if fetch_email_button:
+            st.session_state["emails"] = fetch_emails(start_date, end_date)
+            st.session_state["new_emails"] = save_new_emails(
+                emails=st.session_state["emails"],
                 schema=SCHEMA,
-                if_exists="append",
-                index=False,
+                sql_engine=st.session_state["sql_engine"],
             )
-            st.session_state["new_emails"] = [
+            # st.rerun()
+
+        if st.session_state["emails"]:
+            process_button = render_email_processing(
+                emails=st.session_state["emails"],
+                new_emails=st.session_state["new_emails"],
+                review_email_ids=review_email_ids,
+            )
+            emails_to_process = [
                 email
-                for email, passes in zip(st.session_state["emails"], mask)
-                if passes
+                for email in st.session_state["emails"]
+                if email.id in review_email_ids
             ]
-    return start_date, end_date
-
-
-def render_email_processing():
-    # st.session_state["emails_needing_review"] = fetch_unreviewed_ids(SCHEMA)
-    email_ids_needing_review = fetch_unreviewed_ids(SCHEMA)
-    ic(email_ids_needing_review)
-    with st.form("process_email"):
-        col1, col2, col3 = st.columns((2, 2, 8))
-        col1.metric("Emails Retrieved", value=len(st.session_state["emails"]))
-        col2.metric("New Emails", value=len(st.session_state["new_emails"]))
-        col2.metric(
-            "Unreviewed Emails",
-            value=len(email_ids_needing_review),
-        )
-        with col3.expander("Retrieved Emails"):
-            st.write(pd.DataFrame([x.model_dump() for x in st.session_state["emails"]]))
-        process_submit = col1.form_submit_button("Process Emails")
-
-    if process_submit:
-        # if st.session_state['email_ids_needing_review'].empty:
-        #     return None
-        progress_bar = st.progress(0)
-        emails = [
-            email
-            for email in st.session_state["emails"]
-            if email.id in email_ids_needing_review
-        ]
-        ic(emails)
-        MAX_PROGRESS = len(emails)
-
-        ids = []
-        reviews = []
-        for index, email_data in enumerate(emails):
-            progress_bar.progress((index + 1) / MAX_PROGRESS)
-            email_redacted = email_data.redact_data(redactor)
-            ic(email_redacted)
-            try:
-                reviewed = agent.review(email_data)
-                reviews.append(reviewed)
-                ids.append(email_data.id)
-            except:
-                pass
-        if len(reviews) > 0:
-            reviews_df = pd.DataFrame([x.model_dump() for x in reviews])
-            ic(reviews_df)
-            ic(ids)
-            reviews_df[["id"]] = ids
-
-            ic(reviews_df.head())
-            reviews_df.to_sql(
-                "assessments",
-                st.session_state["sql_engine"],
+        if "emails_to_process" in locals() and process_button:
+            process_emails(
+                emails=emails_to_process,
+                agent=agent,
                 schema=SCHEMA,
-                if_exists="append",
-                index=False,
+                sql_engine=st.session_state["sql_engine"],
             )
 
-        progress_bar.empty()
-        st.toast("Done!")
-
-
-start_date, end_date = render_email_fetch()
-
-if st.session_state["emails"]:
-    render_email_processing()
-
-# col1, col2 = st.columns((6, 6))
-
-# selected_field = col1.selectbox(
-#     "Select a boolean field to filter",
-#     options=["all"] + boolean_fields,
-# )
-# date = pd.to_datetime(
-#     col1.date_input(
-#         "Filter By Date", value=pd.to_datetime("today") - pd.DateOffset(days=7)
-#     ),
-#     utc=True,
-# )
-
-# display_fields = col2.multiselect(
-#     "Select Fields to Show",
-#     default=["sender", "subject", "date"],
-#     options=non_boolean_fields,
-# )
-
-# only_unacknowledged = col2.checkbox("Exclude Acknowledged", value=False)
-
-
-# with st.form("save_data"):
-#     form_button = st.form_submit_button("Save")
-#     if selected_field == "all":
-#         filtered_data = data
-#         display_boolean = boolean_fields
-#     else:
-#         filtered_data = data[data[selected_field]]
-#         display_boolean = [selected_field]
-#     mask = (filtered_data["date"] >= date) & filtered_data[ack_field].apply(
-#         lambda x: not (x and only_unacknowledged)
-#     )
-#     st.session_state["filtered_data"] = filtered_data[mask]
-
-#     displayed_data = st.data_editor(
-#         st.session_state["filtered_data"].loc[
-#             :, [id_field, ack_field] + display_fields + display_boolean
-#         ],
-#         disabled=display_boolean + display_fields + [id_field],
-#         hide_index=True,
-#     )
-
-#     if form_button:
-#         export = displayed_data.loc[:, [id_field, ack_field]]
-#         # print(export)
-#         for index, record in export.iterrows():
-#             id = record[id_field]
-#             new_val = record[ack_field]
-#             mask = local_store[id_field] == id
-#             if sum(mask) == 0:
-#                 local_store = pd.concat(
-#                     [
-#                         local_store,
-#                         displayed_data.loc[
-#                             displayed_data.loc[:, id_field] == id, [id_field, ack_field]
-#                         ],
-#                     ],
-#                     sort=False,
-#                 )
-#             else:
-#                 local_store.loc[local_store[id_field] == id, ack_field] = new_val
-#         local_store.to_pickle(os.getenv("LOCAL_STORE"))
+    with tabs[0]:
+        boolean_fields, non_boolean_fields = fetch_form_data(
+            schema=SCHEMA,
+            sql_engine=st.session_state["sql_engine"],
+        )
+        (
+            selected_field,
+            date,
+            display_fields,
+            only_unacknowledged,
+        ) = render_email_details_options(
+            DEFAULT_WINDOW, boolean_fields, non_boolean_fields
+        )
+        if selected_field or date or display_fields or only_unacknowledged:
+            ic(selected_field, date, display_fields, only_unacknowledged)
+            review_filter = (
+                selected_field if selected_field not in ALL_INDICATORS else None
+            )
+            display_data = fetch_display_data(
+                review_filter=review_filter,
+                boolean_fields=boolean_fields,
+                date=date,
+                display_fields=display_fields,
+                only_unacknowledged=only_unacknowledged,
+                ack_only_field_name=ACKNOWLEDGE_FIELD,
+                schema=SCHEMA,
+                sql_engine=st.session_state["sql_engine"],
+            )
+            ic(display_data)
+            form_button, st.session_state["editor_data"] = render_email_details_table(
+                display_data=display_data,
+                ack_only_field_name=ACKNOWLEDGE_FIELD,
+            )
+        if not st.session_state["editor_data"].empty and form_button:
+            bools = st.session_state["editor_data"].loc[:, ACKNOWLEDGE_FIELD]
+            ids = list(st.session_state["editor_data"].loc[:, "id"].values)
+            new_results, edited_results = save_acknowledgements(
+                zip(ids, bools),
+                schema=SCHEMA,
+                sql_engine=st.session_state["sql_engine"],
+            )
+            ic(new_results)
+            if len(new_results):
+                st.toast(f"{len(new_results)} New Acknowledgment")
+            if len(edited_results):
+                st.toast(f"{len(edited_results)} Changed Acknowledgment")

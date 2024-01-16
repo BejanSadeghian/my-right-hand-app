@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import altair as alt
 from millify import millify
 
-from app.utils import init_budget_page
+from utils import init_budget_page
 
 # from dateutil import parser
 
@@ -262,7 +262,7 @@ def main(df, budget_df, ALL_VAR="All", AMOUNT_FIELD="Amount"):
 
 
 if __name__ == "__main__":
-    init()
+    init_budget_page()
     spend_df = pd.read_csv(os.getenv("SPEND_LOCAL_STORE"))
     budget_df = pd.read_csv(os.getenv("BUDGET_LOCAL_STORE"))
     main(spend_df, budget_df)
