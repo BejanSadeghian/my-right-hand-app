@@ -10,6 +10,7 @@ from pages.components.budget.utils import (
     fetch_transaction_data,
     add_records,
     generate_hash,
+    MissingData,
 )
 
 
@@ -21,6 +22,7 @@ def render_overview(
 ):
     COL_ORDER = [POS_COLOR, NEG_COLOR]
     filtered_data.reset_index(inplace=True)
+    print(filtered_data)
     mask = filtered_data[AMOUNT_FIELD] <= 0
     outflow_data = filtered_data.loc[mask, :]
     inflow_data = filtered_data.loc[~mask, :]
@@ -83,7 +85,6 @@ def render_metric(
     monthly=True,
 ) -> None:
     actual_value = np.nansum(filtered_actual_data[AMOUNT_FIELD] * -1)
-
     filtered_budget_data = budget_df[budget_df["Category"] == category]
     budget_metric = "Monthly" if monthly else "Yearly"
     budget_value = np.nansum(filtered_budget_data[budget_metric])
@@ -104,14 +105,14 @@ def render_metric(
     )
 
 
-def render_data_upload():
+def render_data_upload(expected_columns_on_import: list[str], schema: str):
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
         data.columns = [column.lower() for column in data.columns]
         missing_cols = [
-            col for col in EXPECTED_COLS_IMPORT_TRANSACTIONS if col not in data.columns
+            col for col in expected_columns_on_import if col not in data.columns
         ]
         if missing_cols:
             raise Exception(
@@ -121,7 +122,7 @@ def render_data_upload():
         data.loc[:, "id"] = [str(x) for x in generate_hash(data)]
         new_record_ids = add_records(
             data,
-            schema=SCHEMA,
+            schema=schema,
             sql_engine=st.session_state["sql_engine"],
         )
         st.toast(f"Added {len(new_record_ids)} records")
@@ -140,7 +141,10 @@ def render_dropdown_menu(
         "Select Accounts", [ALL_VAR] + unique_accounts, default=ALL_VAR
     )
     col1, col2, col3 = st.columns((4, 4, 4))
-    category = col1.selectbox("Select Category", [ALL_VAR] + unique_categories)
+    category = col1.selectbox(
+        "Select Category",
+        [ALL_VAR] + unique_categories,
+    )
     today = pd.to_datetime("today")
     try:
         index = unique_months.index(today.month) + 1  # Offset by 1 for "all"
@@ -157,9 +161,8 @@ def render_dropdown_menu(
 
 def render_budget_metrics(
     budget_df: pd.DataFrame,
-    category: str,
-    month: str,
-    year: str,
+    month: int,
+    year: int,
     ALL_VAR: str,
     AMOUNT_FIELD: str,
     unique_categories: list[str],
@@ -171,26 +174,30 @@ def render_budget_metrics(
     monthly_budget = st.checkbox("Use Monthly Budget", value=True)
 
     category_cols = st.columns((4, 4, 4))
-    for index, category in enumerate(unique_categories):
-        col_index = index % 3
-
-        filtered_actual_data = fetch_transaction_data(
-            accounts=[ALL_VAR],
-            category=category,
-            month=month,
-            year=year,
-            schema=schema,
-            sql_engine=sql_engine,
-        )
-        ic(filtered_actual_data)
-        render_metric(
-            category_cols[col_index],
-            filtered_actual_data,
-            budget_df,
-            category,
-            AMOUNT_FIELD,
-            monthly=monthly_budget,
-        )
+    increment = 0
+    for category in unique_categories:
+        try:
+            col_index = increment % 3
+            filtered_actual_data = fetch_transaction_data(
+                accounts=[ALL_VAR],
+                category=category,
+                month=month,
+                year=year,
+                schema=schema,
+                sql_engine=sql_engine,
+            )
+            ic(filtered_actual_data)
+            render_metric(
+                category_cols[col_index],
+                filtered_actual_data,
+                budget_df,
+                category,
+                AMOUNT_FIELD,
+                monthly=monthly_budget,
+            )
+            increment += 1
+        except MissingData as e:
+            pass
 
 
 def render_statistics_tab(
@@ -204,7 +211,7 @@ def render_statistics_tab(
     st.caption("On This Tab Positive Means Outflow of Cash")
 
     statistic = st.selectbox("Select Statistic", options=["Average", "Median", "Count"])
-
+    # ic(df)
     monthly_totals = df.groupby(["Category", "Month"])[AMOUNT_FIELD].sum().reset_index()
     if statistic == "Average":
         monthly_stat = (
@@ -220,7 +227,7 @@ def render_statistics_tab(
         )
     elif statistic == "Count":
         monthly_stat = (
-            monthly_totals.groupby("Category")[AMOUNT_FIELD]
+            monthly_totals.groupby("category")[AMOUNT_FIELD]
             .apply(lambda x: len(x) * -1)
             .reset_index()
         )
