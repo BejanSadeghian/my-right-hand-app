@@ -74,7 +74,6 @@ if __name__ == "__main__":
         options["months"],
         options["years"],
     )
-
     ic(accounts, category, month, year)
 
     try:
@@ -137,17 +136,6 @@ if __name__ == "__main__":
         "Admin",
     ]
     tabs = st.tabs(tab_set)
-    with tabs[-1]:
-        render_transaction_upload(
-            EXPECTED_COLS_IMPORT_TRANSACTIONS,
-            schema=SCHEMA,
-            sql_engine=SQL_ENGINE,
-        )
-        render_account_annotation(
-            schema=SCHEMA,
-            sql_engine=SQL_ENGINE,
-            account_options=ACCOUNT_TYPE_OPTIONS,
-        )
 
     # Create a bar chart to show the "Amount" data
     with tabs[0]:
@@ -185,4 +173,16 @@ if __name__ == "__main__":
             budget_df=budget_df,
             AMOUNT_FIELD=AMOUNT_FIELD,
             unique_categories=options["categories"],
+        )
+
+    with tabs[-1]:
+        render_transaction_upload(
+            EXPECTED_COLS_IMPORT_TRANSACTIONS,
+            schema=SCHEMA,
+            sql_engine=SQL_ENGINE,
+        )
+        render_account_annotation(
+            schema=SCHEMA,
+            sql_engine=SQL_ENGINE,
+            account_options=ACCOUNT_TYPE_OPTIONS,
         )
