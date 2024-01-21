@@ -5,16 +5,15 @@ import altair as alt
 from millify import millify
 from icecream import ic
 from sqlalchemy.engine.base import Engine
-
-from pages.components.budget.utils import (
+from datetime import datetime, timedelta
+from pages.budget.utils import (
     fetch_transaction_data,
     fetch_accounts,
     add_records,
     generate_hash,
     replace_data,
 )
-
-from pages.components.budget.exceptions import MissingData
+from pages.budget.exceptions import MissingData
 
 
 def render_overview(
@@ -113,7 +112,7 @@ def render_transaction_upload(
     schema: str,
     sql_engine,
 ):
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    uploaded_file = st.file_uploader("Upload New Transaction Data", type="csv")
 
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
@@ -169,20 +168,32 @@ def render_account_annotation(
         data = fetch_accounts(schema, sql_engine)
     except MissingData as e:
         st.toast(e)
-
-    edited_accounts = st.data_editor(
-        data,
-        column_config={
-            "type": st.column_config.SelectboxColumn(
-                "Type",
-                options=account_options,
-                width="medium",
+    with st.form("edit_accounts"):
+        edited_accounts = st.data_editor(
+            data,
+            column_config={
+                "type": st.column_config.SelectboxColumn(
+                    "Type",
+                    options=account_options,
+                    width="medium",
+                )
+            },
+            disabled=("id", "name", "created_date", "edited_date"),
+            hide_index=True,
+        )
+        save_button = st.form_submit_button("Save")
+        if save_button:
+            success = replace_data(
+                edited_accounts,
+                schema=schema,
+                table="accounts",
+                sql_engine=sql_engine,
+                replace_ids=edited_accounts["id"].to_list(),
             )
-        },
-        disabled=("id", "name", "created_date", "edited_date"),
-        hide_index=True,
-    )
-    return edited_accounts
+            if success:
+                st.toast("Accounts Successfully Updated", icon="✅")
+            else:
+                st.toast("Accounts Not Updated", icon="❗")
 
 
 def render_dropdown_menu(
@@ -194,39 +205,68 @@ def render_dropdown_menu(
 ):
     # Create dropdowns for "Account", "Category", "Month", "Year", and "Week Number"
     # account = st.selectbox("Select Account", [ALL_VAR] + unique_accounts)
-    account = st.multiselect(
+    col1_1, col1_2 = st.columns((6, 6))
+    col2_1, col2_2, col2_3, col2_4 = st.columns((3, 3, 4, 2))
+    col3_1, col3_2 = st.columns((6, 6))
+    filter_internal = col2_3.checkbox("Filter Inter-Account Transactions", value=True)
+    use_date_range = col2_4.checkbox("Use Date Range", value=True)
+    account = col1_1.multiselect(
         "Select Accounts", [ALL_VAR] + unique_accounts, default=ALL_VAR
     )
-    col1, col2, col3 = st.columns((4, 4, 4))
-    category = col1.selectbox(
+    category = col1_2.selectbox(
         "Select Category",
         [ALL_VAR] + unique_categories,
     )
-    today = pd.to_datetime("today")
-    try:
-        index = unique_months.index(today.month) + 1  # Offset by 1 for "all"
-    except:
-        index = 0
-    month = col2.selectbox("Select Month", [ALL_VAR] + unique_months, index=index)
-    try:
-        index = unique_years.index(today.year) + 1  # Offset by 1 for "all"
-    except:
-        index = 0
-    year = col3.selectbox("Select Year", [ALL_VAR] + unique_years, index=index)
-    return account, category, month, year
+    default_end = datetime.today()
+    default_start = datetime.today() - timedelta(days=30)
+    if use_date_range:
+        try:
+            start_date, end_date = col2_1.date_input(
+                "Select date range", value=(default_start, default_end)
+            )
+            month, year = None, None
+        except:
+            st.stop()
+    else:
+        try:
+            index = unique_months.index(default_end.month) + 1  # Offset by 1 for "all"
+        except:
+            index = 0
+        month = col2_1.selectbox("Select Month", [ALL_VAR] + unique_months, index=index)
+        try:
+            index = unique_years.index(default_end.year) + 1  # Offset by 1 for "all"
+        except:
+            index = 0
+        year = col2_2.selectbox("Select Year", [ALL_VAR] + unique_years, index=index)
+        start_date, end_date = None, None
+    return (
+        account,
+        category,
+        month,
+        year,
+        filter_internal,
+        use_date_range,
+        start_date,
+        end_date,
+    )
+
+
+def render_date_selection(use_date_range: bool):
+    pass
 
 
 def render_budget_metrics(
     budget_df: pd.DataFrame,
-    month: int,
-    year: int,
+    spend_df: pd.DataFrame,
+    # month: int,
+    # year: int,
     ALL_VAR: str,
     AMOUNT_FIELD: str,
     unique_categories: list[str],
     schema: str,
     sql_engine: Engine,
 ):
-    st.write(f"Showing Category Budgets for Month {month} Year {year}")
+    st.write(f"Showing Category Budgets")
     st.caption("On This Tab Positive Means Outflow of Cash")
     monthly_budget = st.checkbox("Use Monthly Budget", value=True)
 
@@ -235,14 +275,16 @@ def render_budget_metrics(
     for category in unique_categories:
         try:
             col_index = increment % 3
-            filtered_actual_data = fetch_transaction_data(
-                accounts=[ALL_VAR],
-                category=category,
-                month=month,
-                year=year,
-                schema=schema,
-                sql_engine=sql_engine,
-            )
+            # spend_df = fetch_transaction_data(
+            #     accounts=[ALL_VAR],
+            #     category=category,
+            #     month=month,
+            #     year=year,
+            #     schema=schema,
+            #     sql_engine=sql_engine,
+            # )
+            # filtered_actual_data = spend_df
+            filtered_actual_data = spend_df[spend_df["Category"] == category]
             ic(filtered_actual_data)
             render_metric(
                 category_cols[col_index],

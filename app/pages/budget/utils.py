@@ -6,6 +6,7 @@ from sqlalchemy.engine.base import Engine
 from sqlalchemy import text
 from icecream import ic
 from typing import Callable
+from datetime import datetime
 
 from .exceptions import MissingData
 
@@ -197,12 +198,13 @@ def fetch_all_transaction_categories(
 def fetch_transaction_data(
     accounts: list[str],
     category: str,
-    month: int,
-    year: int,
     schema: str,
     sql_engine: Engine,
+    date_range: tuple[datetime] = None,
+    month: int = None,
+    year: int = None,
 ):
-    ic(accounts, category, month, year)
+    # ic(accounts, category, month, year)
     with sql_engine.connect() as conn:
         query = (
             "SELECT *, EXTRACT(MONTH FROM CAST(date AS DATE)) as Month, "
@@ -218,10 +220,14 @@ def fetch_transaction_data(
             conditions.append(f"account IN ({', '.join(account_list)})")
         if category != "All":
             conditions.append(f"category = '{category}'")
-        if month != "All":
+
+        if month != "All" and month is not None:
             conditions.append(f"EXTRACT(MONTH FROM CAST(date AS DATE)) = {month}")
-        if year != "All":
+        if year != "All" and year is not None:
             conditions.append(f"EXTRACT(YEAR FROM CAST(date AS DATE)) = {year}")
+        if year is None and month is None:
+            conditions.append(f"date >= '{date_range[0]}' AND date < '{date_range[1]}'")
+
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         result = conn.execute(text(query))
@@ -263,3 +269,23 @@ def reconcile_data(
         )
         return success_flag, missing_data
     return True, []
+
+
+def filter_funds_moving_internally(data):
+    data.loc[:, "offset"] = data.loc[:, "Amount"].apply(lambda x: -1 if x < 0 else 1)
+    data.loc[:, "Amount_ABS"] = data.loc[:, "Amount"].apply(np.abs)
+
+    def listed(x):
+        return list(x)
+
+    gb = data.groupby(["Date", "Amount_ABS"], as_index=False).agg(
+        {"offset": ["count", "sum"], "Id": listed}
+    )
+    gb.columns = ["_".join(col).strip() for col in gb.columns.values]
+    gb = gb[(gb["offset_count"] == 2) & (gb["offset_sum"] == 0)]
+    gb = gb.explode("Id_listed")
+    gb.rename({"Id_listed": "Id"}, axis=1, inplace=True)
+    res = pd.merge(gb.loc[:, ["Id", "offset_count"]], data, on="Id", how="right")
+    res = res[res["offset_count"].isnull()]
+    res.drop(["Amount_ABS", "offset", "offset_count"], axis=1, inplace=True)
+    return res, gb

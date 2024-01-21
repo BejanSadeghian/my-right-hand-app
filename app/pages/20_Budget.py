@@ -11,7 +11,7 @@ from icecream import ic
 from sqlalchemy.engine.base import Engine
 
 from utils import init_app, init_budget_page
-from pages.components.budget.utils import (
+from pages.budget.utils import (
     fetch_transaction_data,
     get_filtered_data,
     generate_hash,
@@ -23,10 +23,11 @@ from pages.components.budget.utils import (
     fetch_accounts,
     reconcile_data,
     replace_data,
+    filter_funds_moving_internally,
     fetch_all_transaction_categories,
 )
-from pages.components.budget.exceptions import MissingData
-from pages.components.budget.render import (
+from pages.budget.exceptions import MissingData
+from pages.budget.render import (
     render_overview,
     render_metric,
     render_transaction_upload,
@@ -68,26 +69,69 @@ if __name__ == "__main__":
         schema=SCHEMA,
         sql_engine=SQL_ENGINE,
     )
-    accounts, category, month, year = render_dropdown_menu(
+    (
+        accounts,
+        category,
+        month,
+        year,
+        filter_internal,
+        use_date_range,
+        start_date,
+        end_date,
+    ) = render_dropdown_menu(
         options["accounts"],
         options["categories"],
         options["months"],
         options["years"],
     )
     ic(accounts, category, month, year)
+    ## TEMP
+    # data = fetch_transaction_data(
+    #     accounts=ALL_VAR,
+    #     category=ALL_VAR,
+    #     month=ALL_VAR,
+    #     year=ALL_VAR,
+    #     schema=SCHEMA,
+    #     sql_engine=SQL_ENGINE,
+    # )
 
+    # st.data_editor(gb)
+
+    # ic(gb)
+    # st.stop()
+    ## END TEMP
     try:
-        spend_df = fetch_transaction_data(
-            accounts=accounts,
-            category=category,
-            month=month,
-            year=year,
-            schema=SCHEMA,
-            sql_engine=SQL_ENGINE,
-        )
+        if use_date_range:
+            spend_df = fetch_transaction_data(
+                accounts=accounts,
+                category=category,
+                schema=SCHEMA,
+                sql_engine=SQL_ENGINE,
+                date_range=(start_date, end_date),
+            )
+        else:
+            spend_df = fetch_transaction_data(
+                accounts=accounts,
+                category=category,
+                schema=SCHEMA,
+                sql_engine=SQL_ENGINE,
+                month=month,
+                year=year,
+            )
     except MissingData as e:
         st.toast(e)
         st.stop()
+    if filter_internal:
+        spend_df, gb = filter_funds_moving_internally(spend_df)
+        ic(spend_df)
+
+        st.toast(
+            (
+                f"Filtering {gb.shape[0]} inter-account transactions. "
+                f"A total of {sum(gb['Amount_ABS_'])/2}."
+            )
+        )
+        ic(gb)
 
     # Handle budget data
     success_flag, new_values = reconcile_data(
@@ -144,8 +188,7 @@ if __name__ == "__main__":
     with tabs[1]:
         render_budget_metrics(
             budget_df,
-            month,
-            year,
+            spend_df,
             ALL_VAR,
             AMOUNT_FIELD,
             unique_categories=options["categories"],
