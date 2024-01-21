@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import uuid
 import dotenv
+
 import matplotlib.pyplot as plt
+
 from millify import millify
 from icecream import ic
 from sqlalchemy.engine.base import Engine
@@ -14,23 +15,26 @@ from pages.components.budget.utils import (
     fetch_transaction_data,
     get_filtered_data,
     generate_hash,
+    generate_empty_budget,
+    generate_empty_account,
     add_records,
     fetch_options,
     fetch_budget_data,
-    replace_budget,
-    generate_empty_budget,
+    fetch_accounts,
+    reconcile_data,
+    replace_data,
+    fetch_all_transaction_categories,
 )
 from pages.components.budget.exceptions import MissingData
 from pages.components.budget.render import (
     render_overview,
     render_metric,
-    render_data_upload,
+    render_transaction_upload,
+    render_account_annotation,
     render_dropdown_menu,
     render_budget_metrics,
     render_statistics_tab,
 )
-
-# from dateutil import parser
 
 dotenv.load_dotenv()
 
@@ -38,6 +42,7 @@ init_app()
 init_budget_page()
 
 SCHEMA = os.getenv("DB_SCHEMA")
+SQL_ENGINE = st.session_state["sql_engine"]
 AMOUNT_FIELD = "Amount"
 ALL_VAR = "All"
 EXPECTED_COLS_IMPORT_TRANSACTIONS = [
@@ -48,26 +53,29 @@ EXPECTED_COLS_IMPORT_TRANSACTIONS = [
     "tags",
     "amount",
 ]
+ACCOUNT_TYPE_OPTIONS = [
+    "Checking",
+    "Savings",
+    "Credit Card",
+    "Investment",
+    "Other",
+]
 
 
 if __name__ == "__main__":
-    options = fetch_options(schema=SCHEMA, sql_engine=st.session_state["sql_engine"])
+    options = fetch_options(
+        schema=SCHEMA,
+        sql_engine=SQL_ENGINE,
+    )
     accounts, category, month, year = render_dropdown_menu(
         options["accounts"],
         options["categories"],
         options["months"],
         options["years"],
     )
-    tab_set = [
-        "Overview",
-        "Category Metrics",
-        "Transactions",
-        "Budget",
-        "Statistics",
-        "Upload Data",
-    ]
-    tabs = st.tabs(tab_set)
+
     ic(accounts, category, month, year)
+
     try:
         spend_df = fetch_transaction_data(
             accounts=accounts,
@@ -75,40 +83,70 @@ if __name__ == "__main__":
             month=month,
             year=year,
             schema=SCHEMA,
-            sql_engine=st.session_state["sql_engine"],
+            sql_engine=SQL_ENGINE,
         )
-        ic(spend_df.columns)
-        ic(spend_df)
     except MissingData as e:
         st.toast(e)
         st.stop()
 
-    try:
-        budget_df = fetch_budget_data(
-            "monthly",
-            schema=SCHEMA,
-            sql_engine=st.session_state["sql_engine"],
+    # Handle budget data
+    success_flag, new_values = reconcile_data(
+        fetch_func=fetch_budget_data,
+        field_name="Category",
+        all_values=options["categories"],
+        table="budget",
+        schema=SCHEMA,
+        sql_engine=SQL_ENGINE,
+        generator_func=generate_empty_budget,
+    )
+    if success_flag and new_values:
+        st.toast(
+            (f"Added {len(new_values)} categories to budget: {', '.join(new_values)}"),
+            icon="✅",
         )
-    except MissingData as e:
-        st.toast(e)
-        st.toast("Generating Budget Template")
-        unique_categories = spend_df["Category"].drop_duplicates()
-        ic(unique_categories)
-        new_budget_df = generate_empty_budget(unique_categories)
-        ic(new_budget_df)
-        replace_budget(
-            new_budget_df,
-            schema=SCHEMA,
-            sql_engine=st.session_state["sql_engine"],
-        )
-        budget_df = fetch_budget_data(
-            "monthly",
-            schema=SCHEMA,
-            sql_engine=st.session_state["sql_engine"],
-        )
+    elif not success_flag:
+        st.toast("Issue while handling new categories", icon="❗")
+    budget_df = fetch_budget_data(schema=SCHEMA, sql_engine=SQL_ENGINE)
 
+    # Handle account data
+    success_flag, new_values = reconcile_data(
+        fetch_func=fetch_accounts,
+        field_name="name",
+        all_values=options["accounts"],
+        table="accounts",
+        schema=SCHEMA,
+        sql_engine=SQL_ENGINE,
+        generator_func=generate_empty_account,
+    )
+    if success_flag and new_values:
+        st.toast(
+            (f"Added {len(new_values)} accounts: {', '.join(new_values)}"),
+            icon="✅",
+        )
+    elif not success_flag:
+        st.toast("Issue while handling new accounts", icon="❗")
+    account_data = fetch_accounts(SCHEMA, SQL_ENGINE)
+
+    tab_set = [
+        "Overview",
+        "Category Metrics",
+        "Transactions",
+        "Budget",
+        "Statistics",
+        "Admin",
+    ]
+    tabs = st.tabs(tab_set)
     with tabs[-1]:
-        render_data_upload(EXPECTED_COLS_IMPORT_TRANSACTIONS, schema=SCHEMA)
+        render_transaction_upload(
+            EXPECTED_COLS_IMPORT_TRANSACTIONS,
+            schema=SCHEMA,
+            sql_engine=SQL_ENGINE,
+        )
+        render_account_annotation(
+            schema=SCHEMA,
+            sql_engine=SQL_ENGINE,
+            account_options=ACCOUNT_TYPE_OPTIONS,
+        )
 
     # Create a bar chart to show the "Amount" data
     with tabs[0]:
@@ -123,7 +161,7 @@ if __name__ == "__main__":
             AMOUNT_FIELD,
             unique_categories=options["categories"],
             schema=SCHEMA,
-            sql_engine=st.session_state["sql_engine"],
+            sql_engine=SQL_ENGINE,
         )
 
     with tabs[2]:
@@ -131,14 +169,19 @@ if __name__ == "__main__":
 
     with tabs[3]:
         with st.form("Edit Budget"):
-            mod_budget_df = st.data_editor(budget_df, hide_index=True)
+            mod_budget_df = st.data_editor(
+                budget_df,
+                disabled=("Id", "Category", "Created_date", "Edited_date"),
+                hide_index=True,
+            )
             save_mod_budget_button = st.form_submit_button("Save")
             if save_mod_budget_button:
                 mod_budget_df.columns = [x.lower() for x in mod_budget_df.columns]
-                result = replace_budget(
+                result = replace_data(
                     mod_budget_df,
                     schema=SCHEMA,
-                    sql_engine=st.session_state["sql_engine"],
+                    table="budget",
+                    sql_engine=SQL_ENGINE,
                     replace_ids=mod_budget_df.loc[:, "id"].values,
                 )
                 if result:
@@ -151,7 +194,7 @@ if __name__ == "__main__":
             month=ALL_VAR,
             year=year,
             schema=SCHEMA,
-            sql_engine=st.session_state["sql_engine"],
+            sql_engine=SQL_ENGINE,
         )
         render_statistics_tab(
             df=filtered_data,

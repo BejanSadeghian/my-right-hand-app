@@ -8,10 +8,12 @@ from sqlalchemy.engine.base import Engine
 
 from pages.components.budget.utils import (
     fetch_transaction_data,
+    fetch_accounts,
     add_records,
     generate_hash,
-    MissingData,
 )
+
+from pages.components.budget.exceptions import MissingData
 
 
 def render_overview(
@@ -105,7 +107,11 @@ def render_metric(
     )
 
 
-def render_data_upload(expected_columns_on_import: list[str], schema: str):
+def render_transaction_upload(
+    expected_columns_on_import: list[str],
+    schema: str,
+    sql_engine,
+):
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
     if uploaded_file is not None:
@@ -123,9 +129,34 @@ def render_data_upload(expected_columns_on_import: list[str], schema: str):
         new_record_ids = add_records(
             data,
             schema=schema,
-            sql_engine=st.session_state["sql_engine"],
+            sql_engine=sql_engine,
         )
         st.toast(f"Added {len(new_record_ids)} records")
+
+
+def render_account_annotation(
+    schema: str,
+    sql_engine,
+    account_options: list[str],
+):
+    try:
+        data = fetch_accounts(schema, sql_engine)
+    except MissingData as e:
+        st.toast(e)
+
+    edited_accounts = st.data_editor(
+        data,
+        column_config={
+            "type": st.column_config.SelectboxColumn(
+                "Type",
+                options=account_options,
+                width="medium",
+            )
+        },
+        disabled=("id", "name", "created_date", "edited_date"),
+        hide_index=True,
+    )
+    return edited_accounts
 
 
 def render_dropdown_menu(

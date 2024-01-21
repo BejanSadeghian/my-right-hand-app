@@ -81,5 +81,13 @@ CREATE TABLE budget (
 );
 
 
-
-
+CREATE TABLE accounts (
+	id TEXT NOT NULL, 
+	name TEXT, 
+	description TEXT, 
+	type TEXT CHECK(type IN ('Checking', 'Savings', 'Credit Card', 'Investment', 'Other')), 
+	tag TEXT, 
+	created_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(), 
+	edited_date TIMESTAMP WITHOUT TIME ZONE DEFAULT now(), 
+	PRIMARY KEY (id)
+);

@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
+import uuid
 
 from sqlalchemy.engine.base import Engine
 from sqlalchemy import text
 from icecream import ic
-from enum import Enum
+from typing import Callable
 
 from .exceptions import MissingData
 
@@ -72,6 +73,17 @@ def add_records(
     return new_record_ids
 
 
+def fetch_accounts(schema: str, sql_engine: Engine):
+    with sql_engine.connect() as conn:
+        query_accounts = f"SELECT * FROM {schema}.accounts"
+        results = conn.execute(text(query_accounts))
+        results = results.fetchall()
+
+    if len(results) > 0:
+        return pd.DataFrame(results)
+    raise MissingData("No Account Data")
+
+
 def fetch_options(schema: str, sql_engine: Engine):
     with sql_engine.connect() as conn:
         query_accounts = f"SELECT DISTINCT account FROM {schema}.transactions"
@@ -101,48 +113,24 @@ def fetch_options(schema: str, sql_engine: Engine):
     }
 
 
-# class BudgetType(Enum):
-#     monthly = "monthly"
-#     monthly = "yearly"
-
-
-# def update_budget_record(
-#     id: str,
-#     field: BudgetType,
-#     amount: float,
-#     schema: str,
-#     sql_engine: Engine,
-# ) -> bool:
-#     with sql_engine.connect() as conn:
-#         query = text(f"UPDATE {schema}.budget SET :field = :amount where id = :id")
-#         result = conn.execute(
-#             query, parameters={"field": field, "amount": amount, "id": id}
-#         )
-#         conn.commit()
-#     # Check if the update was successful
-#     if result.rowcount == 0:
-#         return False
-#     else:
-#         return True
-
-
-def replace_budget(
-    new_budget_data: pd.DataFrame,
+def replace_data(
+    new_data: pd.DataFrame,
+    table: str,
     schema: str,
     sql_engine: Engine,
     replace_ids: list[str] = None,
     replace_all: bool = False,
 ):
-    # ic(new_budget_data, replace_all)
+    # ic(new_data, replace_all)
     with sql_engine.connect() as conn:
         if replace_all:
-            conn.execute(text(f"TRUNCATE {schema}.budget;"))
+            conn.execute(text(f"TRUNCATE {schema}.{table};"))
         elif replace_ids is not None:
             for id in replace_ids:
-                delete_query = text(f"DELETE FROM {schema}.budget WHERE id = :id")
+                delete_query = text(f"DELETE FROM {schema}.{table} WHERE id = :id")
                 conn.execute(delete_query, parameters={"id": id})
-        num_rows_effected = new_budget_data.to_sql(
-            name="budget",
+        num_rows_effected = new_data.to_sql(
+            name=table,
             con=conn,
             schema=schema,
             if_exists="append",
@@ -150,7 +138,7 @@ def replace_budget(
         )
 
         conn.commit()
-        if num_rows_effected != new_budget_data.shape[0]:
+        if num_rows_effected != new_data.shape[0]:
             return False
         else:
             return True
@@ -158,15 +146,23 @@ def replace_budget(
 
 def generate_empty_budget(unique_categories: list[str]) -> pd.DataFrame:
     new_budget_df = pd.DataFrame()
-    new_budget_df["id"] = [uuid.uuid4() for _ in unique_categories.values]
-    new_budget_df["category"] = unique_categories.values
+    new_budget_df["id"] = [uuid.uuid4() for _ in unique_categories]
+    new_budget_df["category"] = unique_categories
     new_budget_df["monthly"] = None
     new_budget_df["yearly"] = None
     return new_budget_df
 
 
+def generate_empty_account(unique_accounts: list[str], default="Other") -> pd.DataFrame:
+    new_account_df = pd.DataFrame()
+    new_account_df["id"] = [uuid.uuid4() for _ in unique_accounts]
+    new_account_df["name"] = unique_accounts
+    new_account_df["type"] = None
+    new_account_df["tag"] = None
+    return new_account_df
+
+
 def fetch_budget_data(
-    gb_field: str,
     schema: str,
     sql_engine: Engine,
 ):
@@ -183,6 +179,19 @@ def fetch_budget_data(
 
         return res
     raise MissingData("No Budget Data Found")
+
+
+def fetch_all_transaction_categories(
+    schema: str,
+    sql_engine: Engine,
+) -> list[str]:
+    with sql_engine.connect() as conn:
+        query = text(f"SELECT DISTINCT category FROM {schema}.transactions")
+        result = conn.execute(query)
+        data = result.fetchall()
+    if data:
+        return [x[0] for x in data]
+    raise MissingData("No Category Data Found")
 
 
 def fetch_transaction_data(
@@ -217,11 +226,40 @@ def fetch_transaction_data(
             query += " WHERE " + " AND ".join(conditions)
         result = conn.execute(text(query))
         data = result.fetchall()
-    if len(data) == 0:
-        ic(query)
-        raise MissingData("No Data Found")
-    data = pd.DataFrame(data)
-    data["amount"] = data["amount"].astype(float)
-    data.columns = [x.capitalize() for x in data.columns]
-    data = data.sort_values(by="Date", ascending=False)
-    return data
+    if len(data) != 0:
+        data = pd.DataFrame(data)
+        data["amount"] = data["amount"].astype(float)
+        data.columns = [x.capitalize() for x in data.columns]
+        data = data.sort_values(by="Date", ascending=False)
+        return data
+    ic(query)
+    raise MissingData("No Data Found")
+
+
+def reconcile_data(
+    fetch_func: Callable,
+    field_name: str,
+    all_values: list[str],
+    table: str,
+    schema: str,
+    sql_engine: Engine,
+    generator_func: Callable,
+):
+    try:
+        current_data = fetch_func(schema, sql_engine)
+        existing_values = current_data[field_name].tolist()
+    except MissingData as e:
+        # st.toast(e, icon="❗")
+        existing_values = []
+    missing_data = [x for x in all_values if x not in existing_values]
+    if missing_data:
+        new_records = generator_func(missing_data)
+
+        success_flag = replace_data(
+            new_records,
+            schema=schema,
+            table=table,
+            sql_engine=sql_engine,
+        )
+        return success_flag, missing_data
+    return True, []
