@@ -11,6 +11,7 @@ from pages.components.budget.utils import (
     fetch_accounts,
     add_records,
     generate_hash,
+    replace_data,
 )
 
 from pages.components.budget.exceptions import MissingData
@@ -132,6 +133,31 @@ def render_transaction_upload(
             sql_engine=sql_engine,
         )
         st.toast(f"Added {len(new_record_ids)} records")
+
+
+def render_budget_editor(
+    budget_df: pd.DataFrame,
+    schema: str,
+    sql_engine: Engine,
+):
+    with st.form("Edit Budget"):
+        mod_budget_df = st.data_editor(
+            budget_df,
+            disabled=("Id", "Category", "Created_date", "Edited_date"),
+            hide_index=True,
+        )
+        save_mod_budget_button = st.form_submit_button("Save")
+        if save_mod_budget_button:
+            mod_budget_df.columns = [x.lower() for x in mod_budget_df.columns]
+            result = replace_data(
+                mod_budget_df,
+                schema=schema,
+                table="budget",
+                sql_engine=sql_engine,
+                replace_ids=mod_budget_df.loc[:, "id"].values,
+            )
+            if result:
+                st.toast("Successfully updated budget")
 
 
 def render_account_annotation(

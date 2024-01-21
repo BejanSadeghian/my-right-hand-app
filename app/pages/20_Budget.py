@@ -30,6 +30,7 @@ from pages.components.budget.render import (
     render_overview,
     render_metric,
     render_transaction_upload,
+    render_budget_editor,
     render_account_annotation,
     render_dropdown_menu,
     render_budget_metrics,
@@ -168,24 +169,7 @@ if __name__ == "__main__":
         st.dataframe(spend_df, hide_index=True)
 
     with tabs[3]:
-        with st.form("Edit Budget"):
-            mod_budget_df = st.data_editor(
-                budget_df,
-                disabled=("Id", "Category", "Created_date", "Edited_date"),
-                hide_index=True,
-            )
-            save_mod_budget_button = st.form_submit_button("Save")
-            if save_mod_budget_button:
-                mod_budget_df.columns = [x.lower() for x in mod_budget_df.columns]
-                result = replace_data(
-                    mod_budget_df,
-                    schema=SCHEMA,
-                    table="budget",
-                    sql_engine=SQL_ENGINE,
-                    replace_ids=mod_budget_df.loc[:, "id"].values,
-                )
-                if result:
-                    st.toast("Successfully updated budget")
+        render_budget_editor(budget_df, schema=SCHEMA, sql_engine=SQL_ENGINE)
 
     with tabs[4]:
         filtered_data = fetch_transaction_data(
