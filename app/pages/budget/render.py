@@ -69,7 +69,6 @@ def render_overview(
         .configure_range(category=alt.RangeScheme(COL_ORDER))
     )
     overview_tabs[0].altair_chart(c, use_container_width=True)
-
     overview_tabs[1].bar_chart(
         x="Date", y=AMOUNT_FIELD, data=outflow_data, color=NEG_COLOR
     )
@@ -126,11 +125,13 @@ def render_transaction_upload(
             )
 
         data.loc[:, "id"] = [str(x) for x in generate_hash(data)]
+        ic(data)
         new_record_ids = add_records(
             data,
             schema=schema,
             sql_engine=sql_engine,
         )
+        st.stop()
         st.toast(f"Added {len(new_record_ids)} records")
 
 
@@ -218,7 +219,10 @@ def render_dropdown_menu(
         [ALL_VAR] + unique_categories,
     )
     default_end = datetime.today()
-    default_start = datetime.today() - timedelta(days=30)
+    default_start = default_end.replace(day=1)
+    if (default_end - default_start).days < 7:
+        default_start = default_end - timedelta(days=7)
+    # default_start = datetime.today() - timedelta(days=30)
     if use_date_range:
         try:
             start_date, end_date = col2_1.date_input(
@@ -248,6 +252,7 @@ def render_dropdown_menu(
         use_date_range,
         start_date,
         end_date,
+        col3_2,
     )
 
 
