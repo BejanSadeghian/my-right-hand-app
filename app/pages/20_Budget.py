@@ -9,6 +9,7 @@ import plotly.express as px
 
 from datetime import datetime
 from millify import millify
+from thefuzz import fuzz, process
 from icecream import ic
 from sqlalchemy.engine.base import Engine
 from utils import init_app, init_budget_page
@@ -217,6 +218,7 @@ if __name__ == "__main__":
         "Transaction Data",
         "Budget",
         "Historicals",
+        "Recurring Expenses",
         "Admin",
     ]
     tabs = st.tabs(tab_set)
@@ -275,6 +277,117 @@ if __name__ == "__main__":
             AMOUNT_FIELD=AMOUNT_FIELD,
             unique_categories=options["categories"],
         )
+
+    with tabs[5]:
+        # Recurring
+        n_months = st.number_input(
+            "Choose Months used for prediction",
+            min_value=1,
+            max_value=12,
+            step=1,
+            value=3,
+        )
+        today = datetime.now().replace(day=1) - pd.DateOffset(day=1)
+        c_month, c_year = today.month, today.year
+        predict_date = (today - pd.DateOffset(months=n_months)).replace(day=1)
+
+        st.write(f"Prediction starts from: {predict_date} and goes to {today}")
+        # Filter spend_df for the period between predict_date and current time
+        last_year_spend_df["Date"] = pd.to_datetime(last_year_spend_df["Date"])
+        filtered_spend_df = last_year_spend_df[
+            (last_year_spend_df["Date"] >= predict_date)
+            & (last_year_spend_df["Date"] <= today)
+            & (last_year_spend_df["Amount"] < 0)
+        ]
+
+        # Group by description and month, then count occurrences
+        # Update to consolidate unique descriptions with a threshold before normalizing text in the Description column
+
+        # Initial list of unique descriptions
+        unique_descriptions = filtered_spend_df["Description"].unique()
+
+        # Consolidate descriptions based on a similarity threshold
+        consolidated_descriptions = []
+        for description in unique_descriptions:
+            if (
+                not consolidated_descriptions
+            ):  # If the list is empty, add the first description
+                consolidated_descriptions.append(description)
+            else:
+                # Check if the description is similar enough to any already in the list
+                is_similar = False
+                for cons_description in consolidated_descriptions:
+                    similarity = fuzz.token_sort_ratio(
+                        description.lower(), cons_description.lower()
+                    )
+                    if (
+                        similarity > 80
+                    ):  # Threshold for considering descriptions the same
+                        is_similar = True
+                        break
+                if not is_similar:
+                    consolidated_descriptions.append(description)
+
+        # Function to find the closest match in consolidated descriptions
+        def find_closest_description(description, choices=consolidated_descriptions):
+            closest_match, _ = process.extractOne(description, choices)
+            return closest_match
+
+        # Normalize descriptions by finding the closest match in the consolidated list
+        filtered_spend_df["Normalized_Description"] = filtered_spend_df[
+            "Description"
+        ].apply(find_closest_description)
+
+        DESC_FIELD = "Normalized_Description"
+        average_costs = filtered_spend_df.groupby(DESC_FIELD, as_index=False)[
+            "Amount"
+        ].agg(np.nanmean)
+        average_costs.loc[:, "Amount"] = average_costs.loc[:, "Amount"].apply(
+            lambda x: np.round(float(x), 2)
+        )
+        ic(average_costs)
+        monthly_descriptions = (
+            filtered_spend_df.groupby(
+                [
+                    filtered_spend_df[DESC_FIELD],
+                    filtered_spend_df["Date"].dt.to_period("M"),
+                ]
+            )
+            .size()
+            .reset_index(name="counts")
+        )
+        # ic(monthly_descriptions)
+        # ic(filtered_spend_df)
+        # st.stop()
+
+        # Filter descriptions that appear exactly once in each month of the period
+        unique_monthly_descriptions = monthly_descriptions[
+            monthly_descriptions["counts"] == 1
+        ]
+        # Define the number of months to filter by
+        n_months = (
+            3  # Example: filter records that appear exactly 3 times across months
+        )
+
+        # Filter descriptions that appear exactly n_months times in the period
+        filtered_monthly_descriptions = unique_monthly_descriptions.groupby(
+            DESC_FIELD
+        ).filter(lambda x: len(x) == n_months)
+
+        # Select one record for each description
+        selected_descriptions = filtered_monthly_descriptions.groupby(DESC_FIELD).head(
+            1
+        )
+        data_view = pd.merge(
+            selected_descriptions,
+            average_costs,
+            on=DESC_FIELD,
+            how="left",
+        )
+
+        # Display the filtered descriptions
+        st.write(data_view)
+        ic(spend_df.head())
 
     with tabs[-1]:
         render_transaction_upload(

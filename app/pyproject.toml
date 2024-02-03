@@ -17,6 +17,7 @@ pydantic = "^2.5.3"
 sqlalchemy = "^2.0.25"
 psycopg2-binary = "^2.9.9"
 plotly-express = "^0.4.1"
+thefuzz = "^0.22.1"
 
 [build-system]
 requires = ["poetry-core"]
