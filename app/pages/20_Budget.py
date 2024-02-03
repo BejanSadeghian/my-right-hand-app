@@ -287,11 +287,12 @@ if __name__ == "__main__":
             step=1,
             value=3,
         )
-        today = datetime.now().replace(day=1) - pd.DateOffset(day=1)
+        today = datetime.now().replace(day=1) - pd.DateOffset(days=1)
         c_month, c_year = today.month, today.year
-        predict_date = (today - pd.DateOffset(months=n_months)).replace(day=1)
+        predict_date = (today - pd.DateOffset(months=n_months - 1)).replace(day=1)
 
-        st.write(f"Prediction starts from: {predict_date} and goes to {today}")
+        st.write((f"Prediction Range: {predict_date:%m-%d-%Y} to {today:%m-%d-%Y}"))
+
         # Filter spend_df for the period between predict_date and current time
         last_year_spend_df["Date"] = pd.to_datetime(last_year_spend_df["Date"])
         filtered_spend_df = last_year_spend_df[
@@ -378,11 +379,15 @@ if __name__ == "__main__":
         selected_descriptions = filtered_monthly_descriptions.groupby(DESC_FIELD).head(
             1
         )
-        data_view = pd.merge(
-            selected_descriptions,
-            average_costs,
-            on=DESC_FIELD,
-            how="left",
+        data_view = (
+            pd.merge(
+                selected_descriptions.loc[:, [DESC_FIELD]],
+                average_costs,
+                on=DESC_FIELD,
+                how="left",
+            )
+            .sort_values("Amount")
+            .reset_index(drop=True)
         )
 
         # Display the filtered descriptions
